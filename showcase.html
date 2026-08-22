@@ -1,0 +1,465 @@
+<title>Site Audit Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root{
+    --paper:#F3F4F6; --card:#FFFFFF; --ink:#14181C; --muted:#5A6470; --line:#DDE1E6;
+    --rule:#C9CFD6; --accent:#E8590C; --accent-soft:#FDEEE3;
+    --good:#2F9E44; --warn:#B4690E; --bad:#C92A2A;
+    --track:#E4E7EA; --panel:#1B1F23; --panel-edge:#1B1F23; --panel-ink:#F1F3F5; --panel-muted:#9AA5B1;
+    --shadow:0 1px 2px rgba(16,20,26,.05), 0 6px 20px rgba(16,20,26,.06);
+    --display:'Archivo','Arial Narrow',system-ui,sans-serif;
+    --body:'Public Sans','Segoe UI',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#121619; --card:#1A1F24; --ink:#E7EAED; --muted:#97A2AD; --line:#2A3138;
+      --rule:#39424B; --accent:#FF7A33; --accent-soft:#2A1D14;
+      --good:#5FC97A; --warn:#E0A046; --bad:#F0736C;
+      --track:#252C33; --panel:#0A0D10; --panel-edge:#2F373E; --panel-ink:#E7EAED; --panel-muted:#8A95A0;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#121619; --card:#1A1F24; --ink:#E7EAED; --muted:#97A2AD; --line:#2A3138;
+    --rule:#39424B; --accent:#FF7A33; --accent-soft:#2A1D14;
+    --good:#5FC97A; --warn:#E0A046; --bad:#F0736C;
+    --track:#252C33; --panel:#0A0D10; --panel-edge:#2F373E; --panel-ink:#E7EAED; --panel-muted:#8A95A0;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:16px/1.6 var(--body); -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px}
+  .col{max-width:68ch}
+  h1,h2,h3,h4{font-family:var(--display); text-wrap:balance; margin:0}
+  h1{font-size:clamp(34px,5.4vw,58px); font-weight:800; line-height:1.02; letter-spacing:-.015em; text-transform:uppercase}
+  h2{font-size:clamp(22px,3vw,30px); font-weight:800; line-height:1.1; letter-spacing:-.01em}
+  h3{font-size:17px; font-weight:700; line-height:1.25}
+  p{margin:0}
+  a{color:var(--accent)}
+  .eyebrow{
+    font:700 11.5px var(--display); text-transform:uppercase; letter-spacing:.18em; color:var(--accent);
+  }
+  .lede{font-size:19px; line-height:1.55; color:var(--ink)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px; line-height:1.55}
+  .mono{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+  /* ---------- rhythm ---------- */
+  section{padding:56px 0; border-top:1px solid var(--line)}
+  section:first-of-type{border-top:0}
+  .stack{display:flex; flex-direction:column; gap:18px}
+  .stack-sm{display:flex; flex-direction:column; gap:10px}
+  .sectionhead{display:flex; flex-direction:column; gap:8px; margin-bottom:26px}
+
+  /* ---------- hero ---------- */
+  header.hero{padding:64px 0 8px}
+  .herogrid{display:grid; grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr); gap:44px; align-items:start}
+  @media (max-width:860px){ .herogrid{grid-template-columns:1fr; gap:32px} }
+  .heroline{width:64px; height:5px; background:var(--accent); border-radius:3px}
+  .runline{
+    font:500 12.5px var(--mono); color:var(--muted); background:var(--card);
+    border:1px solid var(--line); border-radius:8px; padding:9px 12px; overflow-x:auto; white-space:nowrap;
+  }
+  .runline b{color:var(--ink); font-weight:500}
+
+  /* ---------- scorecard ---------- */
+  .scorecard{background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden}
+  .sc-top{display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--panel); color:var(--panel-ink); padding:10px 16px}
+  .sc-top b{font:700 11.5px var(--display); text-transform:uppercase; letter-spacing:.16em}
+  .sc-top span{font:400 11px var(--mono); color:var(--panel-muted)}
+  .sc-body{padding:18px 16px; display:flex; flex-direction:column; gap:16px}
+  .sc-head{display:flex; align-items:center; gap:16px}
+  .dial{width:104px; height:104px; flex:none; border-radius:50%; display:grid; place-items:center;
+        background:conic-gradient(var(--bad) 0 47%, var(--track) 47% 100%)}
+  .dial > div{width:82px; height:82px; border-radius:50%; background:var(--card); display:grid; place-items:center; gap:0}
+  .dial b{font:800 34px/1 var(--display); color:var(--bad)}
+  .dial span{font:700 8.5px var(--display); text-transform:uppercase; letter-spacing:.13em; color:var(--muted)}
+  .bars{display:flex; flex-direction:column; gap:8px; flex:1; min-width:0}
+  .bar{display:grid; grid-template-columns:74px 1fr 30px; align-items:center; gap:10px}
+  .bar i{font:700 9.5px var(--display); font-style:normal; text-transform:uppercase; letter-spacing:.12em; color:var(--muted)}
+  .track{height:8px; background:var(--track); border-radius:5px; overflow:hidden}
+  .track div{height:100%; border-radius:5px}
+  .bar b{font:700 12.5px var(--display); text-align:right; font-variant-numeric:tabular-nums}
+  .sc-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; border-top:1px solid var(--line); padding-top:14px}
+  .stat{display:flex; flex-direction:column; gap:2px}
+  .stat b{font:800 20px/1 var(--display); font-variant-numeric:tabular-nums}
+  .stat span{font:700 8.5px var(--display); text-transform:uppercase; letter-spacing:.1em; color:var(--muted)}
+
+  /* ---------- generic cards ---------- */
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; box-shadow:var(--shadow)}
+  .grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(370px,1fr)); gap:16px}
+  .grid3{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px}
+
+  /* ---------- pipeline ---------- */
+  .pipe{display:flex; flex-direction:column; gap:0}
+  .step{display:grid; grid-template-columns:56px minmax(0,1fr) minmax(0,.85fr); gap:20px; padding:20px 0; border-top:1px solid var(--line)}
+  .step:first-child{border-top:0}
+  @media (max-width:760px){ .step{grid-template-columns:40px minmax(0,1fr); gap:14px} .step .out{grid-column:2} }
+  .stepno{font:800 26px/1 var(--display); color:var(--accent); font-variant-numeric:tabular-nums; padding-top:2px}
+  .step h3{margin-bottom:5px}
+  .out{background:var(--accent-soft); border-radius:9px; padding:10px 13px; align-self:start}
+  .out b{display:block; font:700 9px var(--display); text-transform:uppercase; letter-spacing:.14em; color:var(--accent); margin-bottom:5px}
+  .out ul{margin:0; padding-left:15px; font:400 12.5px/1.55 var(--mono); color:var(--ink)}
+  .out li{margin:2px 0}
+
+  /* ---------- checks ---------- */
+  .checkgroup{background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; box-shadow:var(--shadow)}
+  .cg-top{display:flex; align-items:baseline; justify-content:space-between; gap:10px; padding:11px 16px; border-bottom:1px solid var(--line)}
+  .cg-top b{font:700 12px var(--display); text-transform:uppercase; letter-spacing:.14em}
+  .cg-top span{font:500 11px var(--mono); color:var(--muted)}
+  .checkgroup ul{margin:0; padding:12px 16px 16px 30px; display:flex; flex-direction:column; gap:6px; font-size:14.2px; line-height:1.5}
+  .checkgroup li::marker{color:var(--accent)}
+
+  /* ---------- findings sample ---------- */
+  .findings{display:flex; flex-direction:column; gap:0; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); overflow:hidden}
+  .finding{display:grid; grid-template-columns:84px minmax(0,1fr) 84px; gap:14px; padding:14px 16px; border-top:1px solid var(--line); align-items:start}
+  .finding:first-child{border-top:0}
+  @media (max-width:680px){ .finding{grid-template-columns:84px minmax(0,1fr)} .finding .eff{grid-column:2; text-align:left} }
+  .pill{display:inline-block; font:700 9px var(--display); text-transform:uppercase; letter-spacing:.1em; border-radius:20px; padding:3px 9px}
+  .p-critical{background:var(--bad); color:#fff}
+  .p-high{background:var(--warn); color:#fff}
+  .p-medium{background:var(--track); color:var(--muted)}
+  .finding h4{font-size:14.5px; font-weight:700; margin-bottom:3px}
+  .ev{font:400 11.5px/1.5 var(--mono); color:var(--muted); margin-top:5px; word-break:break-word}
+  .eff{font:500 11.5px var(--mono); color:var(--muted); text-align:right}
+
+  /* ---------- table ---------- */
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--card); box-shadow:var(--shadow)}
+  table{border-collapse:collapse; width:100%; min-width:520px; font-size:14px}
+  th{font:700 9.5px var(--display); text-transform:uppercase; letter-spacing:.13em; color:var(--muted); text-align:left;
+     padding:11px 16px; border-bottom:1px solid var(--line); white-space:nowrap}
+  td{padding:11px 16px; border-bottom:1px solid var(--line); vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+
+  /* ---------- dark panel block ---------- */
+  .panel{background:var(--panel); color:var(--panel-ink); border:1px solid var(--panel-edge); border-radius:14px; padding:26px 28px}
+  .panel h2{color:var(--panel-ink)}
+  .panel .muted{color:var(--panel-muted)}
+  .panel .eyebrow{color:var(--accent)}
+  .panel .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:18px; margin-top:20px}
+  .panel .kv b{display:block; font:800 22px/1.1 var(--display); font-variant-numeric:tabular-nums}
+  .panel .kv span{font-size:13px; color:var(--panel-muted)}
+
+  footer{padding:40px 0 64px; border-top:1px solid var(--line)}
+  ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:7px}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important; transition:none!important} }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="herogrid">
+      <div class="stack">
+        <div class="heroline"></div>
+        <div class="eyebrow">Local business site audit</div>
+        <h1>Paste a website.<br>Get the whole diagnosis.</h1>
+        <p class="lede">A tool that reads a business's entire website the way Google does, tests everything a customer would run into, and turns what it finds into a report you can hand across a table. It runs on one laptop, calls no outside service, and finishes while you make coffee.</p>
+        <p class="runline mono"><b>$</b> node pro.mjs "Hudson Valley Roofing" https://their-site.com --pages 60</p>
+      </div>
+
+      <div class="scorecard">
+        <div class="sc-top"><b>Sample run</b><span>demo site, 6 pages, 30 seconds</span></div>
+        <div class="sc-body">
+          <div class="sc-head">
+            <div class="dial"><div><b>47</b><span>health</span></div></div>
+            <div class="bars">
+              <div class="bar"><i>Speed</i><div class="track"><div style="width:100%;background:var(--good)"></div></div><b style="color:var(--good)">100</b></div>
+              <div class="bar"><i>Content</i><div class="track"><div style="width:23%;background:var(--bad)"></div></div><b style="color:var(--bad)">23</b></div>
+              <div class="bar"><i>Technical</i><div class="track"><div style="width:13%;background:var(--bad)"></div></div><b style="color:var(--bad)">13</b></div>
+              <div class="bar"><i>Local</i><div class="track"><div style="width:38%;background:var(--bad)"></div></div><b style="color:var(--bad)">38</b></div>
+              <div class="bar"><i>Trust</i><div class="track"><div style="width:57%;background:var(--warn)"></div></div><b style="color:var(--warn)">57</b></div>
+            </div>
+          </div>
+          <div class="sc-stats">
+            <div class="stat"><b>6</b><span>pages read</span></div>
+            <div class="stat"><b>2</b><span>dead links</span></div>
+            <div class="stat"><b>24</b><span>findings</span></div>
+            <div class="stat"><b style="color:var(--bad)">3</b><span>critical</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <div class="col stack">
+      <div class="sectionhead">
+        <div class="eyebrow">What it is</div>
+        <h2>A second opinion on a website, produced in minutes instead of days</h2>
+      </div>
+      <p>Most small businesses have never had anyone look at their site properly. They know it "could be better," but nobody can tell them what is actually costing them calls. A proper agency audit is a paid engagement that comes back days later.</p>
+      <p>This tool answers it from a single pasted URL. It crawls the site, measures it with Google's own performance engine, checks the things that decide whether a local business shows up in search, and writes the result into two documents: a report that explains every problem in customer language, and a one page checklist of what to fix first, with an hour estimate next to each item.</p>
+      <p>Nothing in the output is an opinion or an estimate. Every number came from a request the tool made, and every finding names the page it came from.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sectionhead col">
+      <div class="eyebrow">How it works</div>
+      <h2>Six stages, from a URL to a finished report</h2>
+      <p class="muted">Each stage collects a different kind of evidence. Nothing is inferred from anything else, so a failure in one stage never invents a finding in another.</p>
+    </div>
+
+    <div class="pipe">
+      <div class="step">
+        <div class="stepno">01</div>
+        <div>
+          <h3>Read the site's own instructions</h3>
+          <p class="small muted">Fetches the homepage, then <span class="mono">robots.txt</span> and the XML sitemaps, including sitemap index files that point at other sitemaps. The rules a site publishes for crawlers are obeyed, so pages the owner asked search engines to skip are skipped here too, and recorded as skipped.</p>
+        </div>
+        <div class="out"><b>Collected</b><ul><li>sitemap URL list</li><li>disallow rules</li><li>the real homepage after redirects</li></ul></div>
+      </div>
+
+      <div class="step">
+        <div class="stepno">02</div>
+        <div>
+          <h3>Crawl the whole site, not a sample</h3>
+          <p class="small muted">Works outward from the homepage and the sitemap at once, four pages at a time, pausing between requests so it stays a polite guest on someone else's server. Every page it reaches is read for 30 separate data points. It also counts how many internal links point at each page, which is how orphan pages get caught.</p>
+        </div>
+        <div class="out"><b>Per page</b><ul><li>title, description, headings</li><li>word count, images, alt text</li><li>phone links, forms, schema</li><li>response time and size</li></ul></div>
+      </div>
+
+      <div class="step">
+        <div class="stepno">03</div>
+        <div>
+          <h3>Probe the connection itself</h3>
+          <p class="small muted">Some of the most expensive problems are invisible in a browser. This stage asks the server directly: does the insecure address redirect to the secure one, do the www and non-www versions resolve to a single site, does a made-up URL return a real 404 or a fake success page, and how long does the server take to answer at all.</p>
+        </div>
+        <div class="out"><b>Measured</b><ul><li>redirect behaviour</li><li>404 handling</li><li>time to first byte</li><li>compression, HTTP version</li><li>security headers</li></ul></div>
+      </div>
+
+      <div class="step">
+        <div class="stepno">04</div>
+        <div>
+          <h3>Test every link</h3>
+          <p class="small muted">Every internal destination the crawl found gets requested individually, along with up to 60 outbound links. Links that answer with a block rather than a failure, which is what most large sites do to any automated visitor, are listed separately instead of being reported as broken. The report says which page each dead link was found on.</p>
+        </div>
+        <div class="out"><b>Result</b><ul><li>status code per link</li><li>the page that links to it</li><li>blocked separated from broken</li></ul></div>
+      </div>
+
+      <div class="step">
+        <div class="stepno">05</div>
+        <div>
+          <h3>Measure speed with Google's own tool</h3>
+          <p class="small muted">Runs Lighthouse, the engine behind Google's PageSpeed scores, twice: once emulating a phone on a mobile connection and once as a desktop. This matters because a site can feel instant on the owner's laptop and take five seconds on the phone their customers actually use.</p>
+        </div>
+        <div class="out"><b>Both profiles</b><ul><li>performance, SEO</li><li>accessibility, best practice</li><li>core web vitals</li><li>ranked savings list</li></ul></div>
+      </div>
+
+      <div class="step">
+        <div class="stepno">06</div>
+        <div>
+          <h3>Score it, rank it, write it up</h3>
+          <p class="small muted">Everything collected runs through a rules engine that can raise 54 distinct findings. Each one carries a severity, the reason it costs money in plain language, the fix, an effort estimate, and the evidence it was drawn from. The findings roll up into five category scores and one overall number, and the whole thing is written to PDF.</p>
+        </div>
+        <div class="out"><b>Written out</b><ul><li>8 page report</li><li>1 page work checklist</li><li>full raw data as JSON</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sectionhead col">
+      <div class="eyebrow">What it checks</div>
+      <h2>Fifty four findings across five areas</h2>
+      <p class="muted">The categories are weighted by how directly they affect a local business getting the phone to ring: content and speed at 25 percent each, technical and local presence at 20, trust at 10.</p>
+    </div>
+
+    <div class="grid2">
+      <div class="checkgroup">
+        <div class="cg-top"><b>Technical</b><span>16 findings</span></div>
+        <ul>
+          <li>HTTPS, and whether the insecure version still answers</li>
+          <li>www and non-www serving as two competing sites</li>
+          <li>Missing pages that return success instead of 404</li>
+          <li>Pages marked <span class="mono">noindex</span>, which removes them from Google entirely</li>
+          <li>robots.txt rules that block the site from search</li>
+          <li>Sitemap coverage checked against the actual crawl</li>
+          <li>Orphan pages nothing links to</li>
+          <li>Broken internal and outbound links</li>
+          <li>Canonical tags, duplicate page variants</li>
+          <li>Insecure assets loaded on a secure page</li>
+          <li>Security headers: HSTS, nosniff, CSP</li>
+        </ul>
+      </div>
+
+      <div class="checkgroup">
+        <div class="cg-top"><b>Content and on page</b><span>13 findings</span></div>
+        <ul>
+          <li>Missing, duplicated, or badly sized page titles</li>
+          <li>Missing and duplicated meta descriptions</li>
+          <li>Pages with no headline, or several competing ones</li>
+          <li>Thin pages under 300 words</li>
+          <li>Alt text coverage across every image on the site</li>
+          <li>Whether the pages actually name the town they serve</li>
+          <li>Words a competitor leads with that this site never uses</li>
+        </ul>
+      </div>
+
+      <div class="checkgroup">
+        <div class="cg-top"><b>Local presence</b><span>10 findings</span></div>
+        <ul>
+          <li>Every phone number on the site, compared with the one Google shows</li>
+          <li>Different numbers appearing on different pages</li>
+          <li>Tap to call links, and how many pages actually have one</li>
+          <li>LocalBusiness structured data, the thing that feeds the Google panel</li>
+          <li>Street address, opening hours, map, contact form</li>
+          <li>Review markup, so stars can appear in results</li>
+        </ul>
+      </div>
+
+      <div class="checkgroup">
+        <div class="cg-top"><b>Speed and trust</b><span>15 findings</span></div>
+        <ul>
+          <li>Mobile and desktop performance, scored separately</li>
+          <li>How long the screen stays blank, and whether it jumps while loading</li>
+          <li>Server response time, per page rather than just the homepage</li>
+          <li>Uncompressed pages and outdated HTTP versions</li>
+          <li>Accessibility failures, which also affect older customers</li>
+          <li>Analytics, social preview tags, favicon, stale copyright year</li>
+          <li>JavaScript errors, which usually mean a broken form nobody noticed</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sectionhead col">
+      <div class="eyebrow">What the output looks like</div>
+      <h2>Findings a business owner can act on without a translator</h2>
+      <p class="muted">The top of a real run against the built in test site. Every line carries its own evidence, so nothing has to be taken on faith.</p>
+    </div>
+
+    <div class="findings">
+      <div class="finding">
+        <div><span class="pill p-critical">Critical</span></div>
+        <div>
+          <h4>Google shows a different phone number than the website</h4>
+          <p class="small muted">Customers who find the business on Google may be calling a number that is not the office. Every mismatched call is an invisible lost job.</p>
+          <p class="ev">site says 718-555-0101, Google says 718-555-9999</p>
+        </div>
+        <div class="eff">1 hour</div>
+      </div>
+
+      <div class="finding">
+        <div><span class="pill p-critical">Critical</span></div>
+        <div>
+          <h4>One page is marked noindex</h4>
+          <p class="small muted">A noindex tag removes the page from Google entirely. On a money page that is invisible revenue loss.</p>
+          <p class="ev">/noindex.html</p>
+        </div>
+        <div class="eff">15 minutes</div>
+      </div>
+
+      <div class="finding">
+        <div><span class="pill p-high">High</span></div>
+        <div>
+          <h4>No LocalBusiness schema, so Google cannot read the business details</h4>
+          <p class="small muted">Structured data feeds the Google panel, maps, and rich results. Without it the listing runs on luck.</p>
+          <p class="ev">no business schema found on any crawled page</p>
+        </div>
+        <div class="eff">2 hours</div>
+      </div>
+
+      <div class="finding">
+        <div><span class="pill p-high">High</span></div>
+        <div>
+          <h4>One broken internal link</h4>
+          <p class="small muted">Dead links waste crawl budget and read as neglect to a customer mid decision.</p>
+          <p class="ev">404 · /missing.html, linked from the homepage</p>
+        </div>
+        <div class="eff">2 hours</div>
+      </div>
+
+      <div class="finding">
+        <div><span class="pill p-medium">Medium</span></div>
+        <div>
+          <h4>Only one of six pages has a tap to call link</h4>
+          <p class="small muted">Visitors land on inner pages from search, not just the homepage.</p>
+          <p class="ev">tap to call present on / only</p>
+        </div>
+        <div class="eff">1 hour</div>
+      </div>
+    </div>
+
+    <div class="grid3" style="margin-top:20px">
+      <div class="card stack-sm">
+        <h3>The report</h3>
+        <p class="small muted">Eight pages: the verdict and the five fixes that matter most, speed on both mobile and desktop, a technical health matrix, content and local presence, link health, every finding ranked, then appendices listing every page crawled and every measurement taken.</p>
+      </div>
+      <div class="card stack-sm">
+        <h3>The checklist</h3>
+        <p class="small muted">One page, sorted by how long each job takes. Quick wins under an hour, work that fills a month, and the builds that need a day or more. This is the page that goes on the desk.</p>
+      </div>
+      <div class="card stack-sm">
+        <h3>The raw data</h3>
+        <p class="small muted">Everything the engine saw, as JSON, plus both untouched Lighthouse runs. If anyone wants to check a number, the evidence is right there rather than locked in a PDF.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sectionhead col">
+      <div class="eyebrow">How it is kept honest</div>
+      <h2>The tool is tested against a site with known faults</h2>
+    </div>
+    <div class="col stack">
+      <p>An audit tool that quietly stops catching things is worse than no tool, because the clean report is believed. So the project ships with a small website of its own, built to be broken in ten specific ways: a duplicated title, a page with no description, a page with no headline, two headlines on another, a four word page, a page hidden from search, a page nothing links to, an insecure image, a dead internal link, and a dead outbound one.</p>
+      <p>Running the audit against it has to return the same numbers every time. It catches all ten, scores the site 47 out of 100, and raises 24 ranked findings. Two of the ten sit below the thresholds that would promote them to a ranked finding, one duplicated headline and one dead outbound link, because a single instance of either is noise rather than a problem. Both still appear in the report's tables, which is the behaviour that is wanted: visible, but not dressed up as urgent.</p>
+      <p>Two consecutive runs produce identical output. Any drift in those numbers means a rule changed behaviour and something needs looking at.</p>
+    </div>
+    <div class="tablewrap" style="margin-top:22px">
+      <table>
+        <tr><th>Recorded run</th><th>Pages</th><th>Links checked</th><th>Findings</th><th>Health</th><th>Time</th></tr>
+        <tr><td>Test site with planted faults</td><td class="num">6</td><td class="num">2</td><td class="num">24</td><td class="num" style="color:var(--bad)">47 / 100</td><td class="num">30 s</td></tr>
+        <tr><td>A live single page site</td><td class="num">1</td><td class="num">23</td><td class="num">9</td><td class="num" style="color:var(--warn)">81 / 100</td><td class="num">40 s</td></tr>
+      </table>
+    </div>
+    <p class="small muted col" style="margin-top:12px">Both rows are measured. A real local business site of 20 to 60 pages has not been timed end to end yet; the two Lighthouse passes dominate the clock on any site, so ten to fifteen minutes is the working expectation rather than a recorded figure. The crawl deliberately waits between requests rather than hammering the server it is measuring.</p>
+  </section>
+
+  <section>
+    <div class="panel">
+      <div class="eyebrow">Under the hood</div>
+      <h2 style="margin-top:8px">No accounts, no API keys, no data leaving the machine</h2>
+      <p class="muted" style="margin-top:12px; max-width:62ch">The whole thing is about two thousand lines of plain JavaScript with no build step and no framework. Speed comes from Lighthouse, pulled on demand by npx and driven through the copy of Edge that Windows already ships. Connection level facts come from curl. The PDFs are printed by the same browser. There is no third party service in the loop, which means no per audit cost, no rate limit, and nothing about a prospect's site sent anywhere.</p>
+      <div class="kv">
+        <div><b>2,033</b><span>lines of plain JavaScript, no framework, no build step</span></div>
+        <div><b>30</b><span>data points captured per page</span></div>
+        <div><b>54</b><span>findings the rules engine can raise</span></div>
+        <div><b>$0</b><span>marginal cost per audit</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sectionhead col">
+      <div class="eyebrow">Two modes</div>
+      <h2>A free preview anyone can run, and the full audit behind it</h2>
+    </div>
+    <div class="grid2">
+      <div class="card stack-sm">
+        <h3>The preview</h3>
+        <p class="small muted">Reads the homepage and five inner pages, runs one mobile Lighthouse pass, applies 19 checks, and produces a four page report plus a one page leave behind. It answers "is there a problem here" in about two minutes, which is the right length for a first conversation.</p>
+      </div>
+      <div class="card stack-sm">
+        <h3>The full audit</h3>
+        <p class="small muted">Everything described on this page: the whole site, every link, the connection probes, both Lighthouse profiles, 54 findings and the eight page report. It runs only from the machine it is installed on, and every file it produces is refused to anyone else on the network.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p class="small muted">Built and verified 20 August 2026. Every measured figure on this page came from a recorded run, and the one projection is labelled as one.</p>
+  </footer>
+
+</div>
