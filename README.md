@@ -78,8 +78,15 @@ Shared: `server.mjs` + `ui.html` (:4950) serve both and hold the owner gate.
 
 ## Machine quirks handled
 
-- Lighthouse on Windows crashes on temp-profile cleanup AFTER writing its report:
-  success is judged by the report file, never the exit code.
+- Edge relaunches itself when `__COMPAT_LAYER` is set, and processes started from the
+  Claude app on this machine inherit `__COMPAT_LAYER=DetectorsAppHealth`. The msedge.exe
+  that chrome-launcher starts hands off to its relaunched copy and exits, so the kill at the
+  end of a Lighthouse run goes to a process that is already gone. The real browser keeps
+  running, and Lighthouse exits 1 because it can't delete the profile that browser still
+  holds. `runLighthouse` removes the variable and gives each run its own TEMP folder. After
+  the run it ends any msedge.exe whose command line still carries that run's
+  `lighthouse.<n>` profile. Success is judged by the report file, never the exit code, since
+  a run with a runtime error also writes its report and exits 1.
 - Fetch falls back to `curl --ssl-no-revoke` (AVG TLS interception).
 - Windows schannel aborts some transfers after the headers arrive ("missing
   close_notify", wrong-principal certs on www hosts that do not exist). The transport

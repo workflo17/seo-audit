@@ -1,8 +1,9 @@
 // Audit core: crawl + Lighthouse + rules engine. Shared by the CLI (audit.mjs)
 // and the paste-a-website server (server.mjs).
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -102,14 +103,61 @@ async function crawlPages(homeHtml, base, max = 5) {
 }
 
 // ---------- lighthouse ----------
-// Windows Lighthouse often crashes on temp-profile cleanup AFTER writing the
-// report — success is judged by the report file, never the exit code.
+// Success is judged by the report file, never the exit code: a run that hits a runtime
+// error (NO_FCP and the like) still writes its report and exits 1.
+// Until 25 Sep 2026 every run left its Edge running (24 headless browsers from that
+// morning's audits alone). Edge relaunches itself when __COMPAT_LAYER is in its
+// environment, and processes started from the Claude app on this machine inherit
+// __COMPAT_LAYER=DetectorsAppHealth: the msedge.exe that chrome-launcher spawned starts a
+// copy with --edge-skip-compat-layer-relaunch and exits. At the end of the run
+// chrome-launcher taskkills that dead PID ("not found", silent under --quiet), the real
+// browser lives on, and deleting the profile it still holds is the EPERM that used to make
+// Lighthouse exit 1 after writing its report. So the variable is dropped, and each run gets
+// its own TEMP, which chrome-launcher builds the profile from (<TEMP>\lighthouse.<n>): if a
+// browser survives anyway, that path finds it, and only it.
 export function runLighthouse(url, outPath, extraFlags = "") {
+  let runTmp = null;
   try {
+    runTmp = mkdtempSync(join(tmpdir(), "seo-audit-lh-"));
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(temp|tmp|__compat_layer)$/i.test(k)));
+    Object.assign(env, { CHROME_PATH: EDGE, TEMP: runTmp, TMP: runTmp });
     execSync(`npx --yes lighthouse "${url}" --quiet --output=json --output-path="${outPath}" ` +
       `--only-categories=performance,seo,accessibility,best-practices ` +
-      `${extraFlags} --chrome-flags="--headless=new"`, { stdio: "pipe", timeout: 240000, env: { ...process.env, CHROME_PATH: EDGE } });
+      `${extraFlags} --chrome-flags="--headless=new"`, { stdio: "pipe", timeout: 240000, env });
   } catch {}
+  finally {
+    if (runTmp) {
+      endLighthouseBrowser(runTmp);
+      try { rmSync(runTmp, { recursive: true, force: true, maxRetries: 5 }); } catch {}
+    }
+  }
+}
+// Ends the Edge a run left behind: every msedge.exe whose command line carries that run's
+// own profile path (the browser and each of its helpers do), and nothing at all unless one
+// of them is a --headless browser. Not taskkill /T: the leaked browser's parent is gone,
+// Windows hands that PID to new processes within minutes, and /T follows parent PIDs. Each
+// handle is opened, and its start time checked against the lookup, before anything is
+// ended, so no PID can turn into a different process in between. Returns how many it
+// ended, which is 0 whenever chrome-launcher's own kill worked.
+export function endLighthouseBrowser(runTmp) {
+  if (process.platform !== "win32") return 0;
+  const ps = `$tag = $env:LH_RUN_PROFILE
+$found = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($tag, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+if (-not ($found | Where-Object { $_.CommandLine -match '--headless' })) { 0; exit }
+$held = @(foreach ($f in ($found | Sort-Object { $_.CommandLine -match '--type=' })) {
+  try {
+    $p = [Diagnostics.Process]::GetProcessById([int]$f.ProcessId); [void]$p.Handle
+    if ([Math]::Abs(($p.StartTime - $f.CreationDate).TotalMilliseconds) -lt 1) { $p }
+  } catch {}
+})
+foreach ($p in $held) { try { $p.Kill() } catch {} }
+foreach ($p in $held) { try { [void]$p.WaitForExit(3000) } catch {} }
+$held.Count`;
+  try {
+    const out = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(ps, "utf16le").toString("base64")],
+      { encoding: "utf8", timeout: 60000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, LH_RUN_PROFILE: basename(runTmp) + "\\lighthouse." } });
+    return parseInt(out.trim(), 10) || 0;
+  } catch { return 0; }
 }
 export function parseLighthouse(outPath) {
   try {
