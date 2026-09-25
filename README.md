@@ -87,6 +87,10 @@ Shared: `server.mjs` + `ui.html` (:4950) serve both and hold the owner gate.
   the run it ends any msedge.exe whose command line still carries that run's
   `lighthouse.<n>` profile. Success is judged by the report file, never the exit code, since
   a run with a runtime error also writes its report and exits 1.
+- Lighthouse is pinned (`LIGHTHOUSE` in `lib.mjs`, 13.4.1 as of September 2026). An
+  unpinned `npx lighthouse` picked up 13.5.0, which fails at config time when categories
+  are restricted and writes no report at all, so every audit read "unmeasured" until the
+  pin went in. Bump it on purpose, after one run against the fixture.
 - Fetch falls back to `curl --ssl-no-revoke` (AVG TLS interception).
 - Windows schannel aborts some transfers after the headers arrive ("missing
   close_notify", wrong-principal certs on www hosts that do not exist). The transport

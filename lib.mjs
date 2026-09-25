@@ -105,6 +105,10 @@ async function crawlPages(homeHtml, base, max = 5) {
 // ---------- lighthouse ----------
 // Success is judged by the report file, never the exit code: a run that hits a runtime
 // error (NO_FCP and the like) still writes its report and exits 1.
+// Pinned: 13.5.0 (September 2026) dies at config time with the category filter ("Failed to
+// find dependency RobotsTxt for AgentResourceDiscovery") and writes no report, so every
+// score came back unmeasured. Move the pin only after a test run against the fixture.
+export const LIGHTHOUSE = "lighthouse@13.4.1";
 // Until 25 Sep 2026 every run left its Edge running (24 headless browsers from that
 // morning's audits alone). Edge relaunches itself when __COMPAT_LAYER is in its
 // environment, and processes started from the Claude app on this machine inherit
@@ -121,7 +125,7 @@ export function runLighthouse(url, outPath, extraFlags = "") {
     runTmp = mkdtempSync(join(tmpdir(), "seo-audit-lh-"));
     const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(temp|tmp|__compat_layer)$/i.test(k)));
     Object.assign(env, { CHROME_PATH: EDGE, TEMP: runTmp, TMP: runTmp });
-    execSync(`npx --yes lighthouse "${url}" --quiet --output=json --output-path="${outPath}" ` +
+    execSync(`npx --yes ${LIGHTHOUSE} "${url}" --quiet --output=json --output-path="${outPath}" ` +
       `--only-categories=performance,seo,accessibility,best-practices ` +
       `${extraFlags} --chrome-flags="--headless=new"`, { stdio: "pipe", timeout: 240000, env });
   } catch {}
