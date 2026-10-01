@@ -1,6 +1,18 @@
 // Client-facing documents: the full multi-page report and the 1-page leave-behind.
 // Both print to letter-size PDF via headless Edge and read clean on screen.
 import { BRAND } from "./lib.mjs";
+import { standing, host } from "./compete.mjs";
+
+// How the competitors got onto the page: which ones a search found, with the query, and
+// what the search could not do. Empty when every competitor was named by hand.
+function foundLine(discovery, comps) {
+  if (!discovery) return "";
+  const found = comps.filter(x => x.ok && x.found).map(x => host(x.url));
+  const bits = [];
+  if (found.length) bits.push(`${found.join(", ")} ${found.length === 1 ? "was" : "were"} found by searching for "${discovery.queries[0]}".`);
+  if (discovery.note) bits.push(discovery.note);
+  return bits.length ? `<p class="muted">${esc(bits.join(" "))}</p>` : "";
+}
 
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // Exported so the owner-only pro report (report-pro.mjs) inherits the same visual system.
@@ -33,6 +45,7 @@ export const CSS = `
   table{width:100%; border-collapse:collapse; font-size:11.5px; margin:6px 0}
   th{text-align:left; font:700 10px Bahnschrift,sans-serif; text-transform:uppercase; letter-spacing:1px; color:#5A6470; border-bottom:2px solid #DDE1E6; padding:4px 8px 4px 0}
   td{border-bottom:1px solid #EEF0F2; padding:5px 8px 5px 0; vertical-align:top}
+  table.tight{font-size:11px} table.tight th,table.tight td{padding:3px 8px 3px 0}
   .pill{display:inline-block; font:700 9.5px Bahnschrift,sans-serif; text-transform:uppercase; letter-spacing:.8px; border-radius:10px; padding:1px 8px}
   .p-critical{background:#FBEAEA; color:#C92A2A}
   .p-high{background:#FDEEE3; color:#B4690E}
@@ -56,11 +69,12 @@ export const CSS = `
   .unlockBtn[disabled]{opacity:.5; cursor:default}
   .paywallErr{font-size:12px; color:#C92A2A; margin:10px 0 0}
   .paywallOk{color:#1971C2}
+  @media print{ tr, li, .fixes li { break-inside: avoid } }
 `;
 const head = (data, sub) => `<header><div class="brand">${esc(BRAND.name)}<small>${esc(BRAND.tagline)}</small></div><span class="date">${data.date}</span></header>
   ${sub ? `<h1>${esc(data.name)}</h1><div class="sub">${sub}</div>` : ""}`;
 const foot = (data, n, of) => `<footer><div><b>${esc(BRAND.contact)}</b> · every fix in this report is included in the first month of work</div><div>prepared for ${esc(data.name)}</div></footer><span class="pageno">${n} / ${of}</span>`;
-const scoreCell = (lh, label, v) => `<div class="sc"><b class="${v >= 90 ? "g" : v >= 50 ? "y" : "r"}">${lh.ok ? v : "–"}</b><span>${label}</span></div>`;
+const scoreCell = (lh, label, v) => `<div class="sc"><b class="${v >= 90 ? "g" : v >= 50 ? "y" : "r"}">${lh.ok ? v : "n/a"}</b><span>${label}</span></div>`;
 
 function subline(data) {
   return `${data.town ? esc(data.town) + " · " : ""}${esc(data.url)}${data.rating ? ` · ${esc(data.rating)}★ on Google${data.reviews ? ` (${esc(data.reviews)} reviews)` : ""}` : ""}`;
@@ -69,7 +83,7 @@ function factChips(data) {
   const s = data.site, lh = data.lighthouse;
   const chip = (ok, good, bad) => `<span class="fact ${ok ? "" : "bad"}">${ok ? good : bad}</span>`;
   return `<div class="facts">
-    ${lh.ok && lh.lcp.v ? `<span class="fact">first paint ${lh.lcp.v}</span>` : ""}
+    ${lh.ok && lh.lcp.v ? `<span class="fact">page appears in ${lh.lcp.v}</span>` : ""}
     ${chip(s.https, "HTTPS ok", "no HTTPS")}
     ${chip(s.hasLocalSchema, "schema present", "no business schema")}
     ${chip(s.tels.length > 0, "tap-to-call ok", "no tap-to-call")}
@@ -82,13 +96,13 @@ function factChips(data) {
 function verdict(data) {
   const c = data.findings.filter(f => f.sev === "critical").length;
   const h = data.findings.filter(f => f.sev === "high").length;
-  const asset = data.rating ? `The reputation is real — ${esc(data.rating)}★${data.reviews ? ` across ${esc(data.reviews)} reviews` : ""} — but the website isn't carrying it.`
+  const asset = data.rating ? `The reputation is real (${esc(data.rating)}★${data.reviews ? ` across ${esc(data.reviews)} reviews` : ""}), but the website isn't carrying it.`
               : "The business is stronger than its website.";
   const load = c + h === 0 ? "The site is fundamentally healthy; the work below is sharpening, not rescue."
     : `We found ${c} critical and ${h} high-impact issue${c + h === 1 ? "" : "s"} standing between searchers and the phone ringing.`;
-  return `<div class="verdict"><b>The short version.</b> ${asset} ${load} Every item in this report has a concrete fix, and the top five alone change what a customer sees within the first month.</div>`;
+  return `<div class="verdict"><b>The short version.</b> ${asset} ${load} Every item in this report has a concrete fix, starting with the list below.</div>`;
 }
-const fixList = fixes => `<ol class="fixes">${fixes.map(f => `<li><div><b>${esc(f.title)}</b><div class="cost">${esc(f.cost)}</div><div class="fix"><em>Fix:</em> ${esc(f.fix)}</div></div></li>`).join("")}</ol>`;
+const fixList = fixes => `<ol class="fixes">${fixes.map(f => `<li><div><b>${esc(f.title)}</b><div class="cost">${esc(f.cost)}</div><div class="fix"><em>Fix${f.effort ? ` (${esc(f.effort)})` : ""}:</em> ${esc(f.fix)}</div></div></li>`).join("")}</ol>`;
 
 // ---------- the 1-page leave-behind ----------
 export function buildLeavebehind(data) {
@@ -98,15 +112,51 @@ export function buildLeavebehind(data) {
     <div class="row">${scoreCell(lh, "Speed", lh.perf)}${scoreCell(lh, "SEO", lh.seo)}${scoreCell(lh, "Accessibility", lh.a11y)}${scoreCell(lh, "Best practices", lh.bp)}
       <div class="sc"><b class="${data.site.viewport ? "g" : "r"}">${data.site.viewport ? "yes" : "NO"}</b><span>Mobile layout</span></div></div>
     ${factChips(data)}
-    <h2>The ${data.fixes.length} fixes, ranked by revenue impact</h2>
+    ${data.competition ? `<div class="verdict">${esc(data.competition.summary.line)}${data.competition.losses.length ? ` The gaps, biggest first: ${data.competition.losses.slice(0, 4).map(l => esc(`${l.label.toLowerCase()} (${l.selfText} here, ${l.bestText} at ${l.bestHost})`)).join("; ")}.` : ""}</div>` : ""}
+    <h2>The ${data.fixes.length} fixes, in order of impact</h2>
     ${fixList(data.fixes)}
     ${foot(data, 1, 1)}
   </div></body></html>`;
 }
 
+// ---------- head to head ----------
+// The same homepage checks, run on this site and each competitor back to back. Green marks
+// the best in a row; the table under it is what closes each gap. Up to three gaps share the
+// comparison's page; more than that and the gaps get a page of their own, so nothing spills
+// past the sheet when three competitors lead on a dozen measures.
+const headToHeadPageCount = data => !data.competition ? 0 : data.competition.losses.length > 3 ? 2 : 1;
+function headToHeadPages(data, firstNo, PAGES) {
+  const c = data.competition;
+  const names = ["This site", ...c.names];
+  const unread = c.competitors.filter(x => !x.ok);
+  const gapWords = [...new Set(c.competitors.flatMap(x => x.gap || []))].slice(0, 10);
+  const body = c.rows.map(r => `<tr><td>${esc(r.label)}</td>${r.text.map((t, i) => `<td class="${r.best[i] ? "g" : ""}">${r.best[i] ? `<b>${esc(t)}</b>` : esc(t)}</td>`).join("")}</tr>`).join("");
+  const gaps = `${c.losses.length ? `<h2>What puts this site on top</h2>
+    <table class="tight"><tr><th>Measure</th><th>The gap</th><th>The fix</th><th>Effort</th></tr>
+      ${c.losses.map(l => `<tr><td><b>${esc(l.label)}</b></td><td><span class="r">${esc(l.selfText)}</span> here, <span class="g">${esc(l.bestText)}</span> at ${esc(l.bestHost)}</td><td>${esc(l.fix)}</td><td class="muted">${esc(l.effort)}</td></tr>`).join("")}
+    </table>` : ""}
+    ${gapWords.length ? `<p class="muted"><b>Words they lead with that this site never says:</b> ${gapWords.map(esc).join(", ")}.</p>` : ""}`;
+  const split = headToHeadPageCount(data) === 2;
+  const first = `<div class="page">${head(data)}
+    <h2>Head to head: this site vs ${esc(c.names.join(", ") || "the competition")}</h2>
+    <p class="muted">The same homepage checks, run on every site here back to back. Green marks the best in each row; a few points of Lighthouse difference counts as level.</p>
+    ${foundLine(c.discovery, c.competitors)}
+    <table class="tight"><tr><th>Measure</th>${names.map(n => `<th>${esc(n)}</th>`).join("")}</tr>${body}</table>
+    ${unread.length ? `<p class="muted">Could not be read: ${unread.map(x => esc(x.url)).join(", ")}.</p>` : ""}
+    <div class="verdict"><b>Where this site stands.</b> ${esc(c.summary.line)} ${esc(standing(c.summary))}</div>
+    ${split ? "" : gaps}
+    ${foot(data, firstNo, PAGES)}
+  </div>`;
+  if (!split) return [first];
+  return [first, `<div class="page">${head(data)}
+    ${gaps}
+    ${foot(data, firstNo + 1, PAGES)}
+  </div>`];
+}
+
 // ---------- the full report ----------
 export function buildReport(data) {
-  const lh = data.lighthouse, s = data.site, PAGES = 4;
+  const lh = data.lighthouse, s = data.site, PAGES = 4 + headToHeadPageCount(data);
   const m = (met, name, why) => lh.ok && met.v ? `<tr><td><b>${name}</b></td><td>${esc(met.v)}</td><td class="${met.s >= 0.9 ? "g" : met.s >= 0.5 ? "y" : "r"}">${met.s >= 0.9 ? "good" : met.s >= 0.5 ? "needs work" : "poor"}</td><td class="muted">${why}</td></tr>` : "";
 
   const page1 = `<div class="page">${head(data, subline(data))}
@@ -114,14 +164,14 @@ export function buildReport(data) {
     <div class="row">${scoreCell(lh, "Speed", lh.perf)}${scoreCell(lh, "SEO", lh.seo)}${scoreCell(lh, "Accessibility", lh.a11y)}${scoreCell(lh, "Best practices", lh.bp)}
       <div class="sc"><b class="${s.viewport ? "g" : "r"}">${s.viewport ? "yes" : "NO"}</b><span>Mobile layout</span></div></div>
     ${factChips(data)}
-    <h2>The 5 fixes that matter most</h2>
+    <h2>The ${data.fixes.length} fixes that matter most</h2>
     ${fixList(data.fixes)}
     ${foot(data, 1, PAGES)}
   </div>`;
 
   const page2 = `<div class="page">${head(data)}
     <h2>Speed &amp; what a visitor feels</h2>
-    <p class="muted">Measured with Google's Lighthouse on a simulated phone connection — the same lens Google uses for ranking.</p>
+    <p class="muted">Measured with Google's Lighthouse on a simulated phone connection: the same lens Google uses for ranking.</p>
     <table><tr><th>Measure</th><th>Result</th><th>Rating</th><th>What it means for a customer</th></tr>
       ${m(lh.fcp || {}, "First content appears", "How long the screen stays blank.")}
       ${m(lh.lcp || {}, "Main content loaded", "When the page feels 'there'. Google's line is 2.5 seconds.")}
@@ -144,26 +194,24 @@ export function buildReport(data) {
   </div>`;
 
   const pagesRows = [
-    `<tr><td>/ (home)</td><td>${esc(s.title || "—")}${s.title ? ` <span class="muted">(${s.title.length} ch)</span>` : ""}</td><td>${s.metaDesc ? "yes" : '<span class="r">missing</span>'}</td><td>${s.h1s.length}</td></tr>`,
+    `<tr><td>/ (home)</td><td>${esc(s.title || "none")}${s.title ? ` <span class="muted">(${s.title.length} ch)</span>` : ""}</td><td>${s.metaDesc ? "yes" : '<span class="r">missing</span>'}</td><td>${s.h1s.length}</td></tr>`,
     ...data.crawl.pages.map(p => p.ok
-      ? `<tr><td>${esc(p.path)}</td><td>${esc(p.title || "—")}${p.title ? ` <span class="muted">(${p.title.length} ch)</span>` : ""}</td><td>${p.metaDesc ? "yes" : '<span class="r">missing</span>'}</td><td>${p.h1Count}</td></tr>`
+      ? `<tr><td>${esc(p.path)}</td><td>${esc(p.title || "none")}${p.title ? ` <span class="muted">(${p.title.length} ch)</span>` : ""}</td><td>${p.metaDesc ? "yes" : '<span class="r">missing</span>'}</td><td>${p.h1Count}</td></tr>`
       : `<tr><td>${esc(p.url)}</td><td colspan="3" class="r">did not load</td></tr>`)
   ].join("");
   const page3 = `<div class="page">${head(data)}
     <h2>How the site reads to Google</h2>
     <table><tr><th>Page</th><th>Title</th><th>Description</th><th>H1s</th></tr>${pagesRows}</table>
-    <p class="muted">${data.crawl.totalInternal} internal links found · link check sample: ${data.crawl.linkSample.checked} tested, ${data.crawl.linkSample.broken} broken.</p>
+    <p class="muted">${data.crawl.totalInternal} internal links found · ${data.crawl.linkSample.broken > 0 ? `${data.crawl.linkSample.broken} of ${data.crawl.linkSample.checked} sampled links were dead.` : `no dead links in the ${data.crawl.linkSample.checked} sampled.`}</p>
     <h2>Local presence</h2>
     <table><tr><th>Signal</th><th>Status</th></tr>
       <tr><td>Phone on the site</td><td>${[...new Set([...s.phones])].map(p => p.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3")).join(", ") || "none found"}</td></tr>
-      ${data.gphone ? `<tr><td>Phone Google shows</td><td class="${data.napMismatch ? "r" : "g"}">${esc(data.gphone)}${data.napMismatch ? " — DIFFERENT from the site" : " — matches"}</td></tr>` : ""}
-      <tr><td>Business schema (what Google can read)</td><td class="${s.hasLocalSchema ? "g" : "r"}">${s.hasLocalSchema ? "present: " + esc([...new Set(s.ldTypes)].join(", ")) : "none — Google is guessing"}</td></tr>
+      ${data.gphone ? `<tr><td>Phone Google shows</td><td class="${data.napMismatch ? "r" : "g"}">${esc(data.gphone)}${data.napMismatch ? ", different from the site" : ", matches"}</td></tr>` : ""}
+      <tr><td>Business schema (what Google can read)</td><td class="${s.hasLocalSchema ? "g" : "r"}">${s.hasLocalSchema ? "present: " + esc([...new Set(s.ldTypes)].join(", ")) : "none, Google is guessing"}</td></tr>
       <tr><td>Sitemap / robots.txt</td><td class="${s.hasSitemap ? "g" : "r"}">${s.hasSitemap ? "present" : "missing"} / ${s.hasRobots ? "present" : "missing"}</td></tr>
       ${data.rating ? `<tr><td>Google rating</td><td>${esc(data.rating)}★${data.reviews ? ` · ${esc(data.reviews)} reviews` : ""}</td></tr>` : ""}
     </table>
-    ${data.comp ? `<h2>Competitor check</h2>
-    <p class="muted">${esc(data.comp.url)}</p>
-    ${data.comp.gap.length ? `<p>Words the competitor leads with that this site never says: <b>${data.comp.gap.map(esc).join(", ")}</b>. Search can only match words that exist on the page.</p>` : "<p>No significant keyword gap found on the compared pages.</p>"}` : ""}
+    ${data.discovery && !data.competition ? `<p class="muted">A search for competitors${data.discovery.queries.length ? ` ("${esc(data.discovery.queries[0])}")` : ""} found none to compare against. ${esc(data.discovery.note || "")}</p>` : ""}
     <h2>Trust signals</h2>
     <div class="facts">
       <span class="fact ${s.https ? "" : "bad"}">${s.https ? "HTTPS" : "no HTTPS"}</span>
@@ -178,15 +226,18 @@ export function buildReport(data) {
 
   const page4 = `<div class="page">${head(data)}
     <h2>The full work list, prioritized</h2>
-    <table><tr><th>Priority</th><th>Finding</th><th>The fix</th></tr>
+    <table class="tight"><tr><th>Priority</th><th>Finding</th><th>The fix</th></tr>
       ${data.findings.map(f => `<tr><td><span class="pill p-${f.sev}">${f.sev}</span></td><td><b>${esc(f.title)}</b><br><span class="muted">${esc(f.cost)}</span></td><td>${esc(f.fix)}</td></tr>`).join("")}
     </table>
     <h2>What happens next</h2>
-    <p>Month one covers every fix above: the rebuild ships mobile-first with your real photos and reviews, the phone number is made consistent everywhere, and Google gets a machine-readable version of the business. You approve everything before it goes live, and nothing on this list is billed separately.</p>
-    ${foot(data, 4, PAGES)}
+    <p>${data.findings.some(f => f.sev === "critical" || f.sev === "high")
+      ? "Month one covers the rebuild: mobile-first, your real photos and reviews, the phone number made consistent everywhere, and a machine-readable version of the business for Google. You approve everything before it goes live."
+      : "The site is in good shape, so this becomes a light monthly maintenance plan: watch the numbers, fix anything that slips, and keep the business details current with Google as they change."}</p>
+    ${foot(data, PAGES, PAGES)}
   </div>`;
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(data.name)} · full site audit</title><style>${CSS}</style></head><body>${page1}${page2}${page3}${page4}</body></html>`;
+  const pageHH = data.competition ? headToHeadPages(data, 4, PAGES).join("") : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(data.name)} · full site audit</title><style>${CSS}</style></head><body>${page1}${page2}${page3}${pageHH}${page4}</body></html>`;
 }
 
 // ---------- the free teaser (page 1 only) with the $29 unlock ----------
@@ -199,11 +250,11 @@ export function buildReportTeaser(data) {
     <div class="row">${scoreCell(lh, "Speed", lh.perf)}${scoreCell(lh, "SEO", lh.seo)}${scoreCell(lh, "Accessibility", lh.a11y)}${scoreCell(lh, "Best practices", lh.bp)}
       <div class="sc"><b class="${s.viewport ? "g" : "r"}">${s.viewport ? "yes" : "NO"}</b><span>Mobile layout</span></div></div>
     ${factChips(data)}
-    <h2>The 5 fixes that matter most</h2>
+    <h2>The ${data.fixes.length} fixes that matter most</h2>
     ${fixList(data.fixes)}
     <div class="paywall" id="paywall">
       <div id="paywallBadge" class="paywallBadge" style="display:none">demo mode: payments not connected</div>
-      <p class="paywallCopy">This is the free preview. The full report adds the speed breakdown, the page-by-page SEO table, local presence and trust signals, and the complete prioritized fix list.</p>
+      <p class="paywallCopy">This is the free preview. The full report adds the speed breakdown, the page-by-page SEO table, local presence and trust signals,${data.competition ? ` the head-to-head against ${esc(data.competition.names.join(", ") || "the competitors you named")},` : ""} and the complete prioritized fix list.</p>
       <button id="unlockBtn" class="unlockBtn" type="button">Get the full report: $29</button>
       <p id="paywallMsg" class="paywallErr" style="display:none"></p>
     </div>
@@ -217,7 +268,7 @@ export function buildReportTeaser(data) {
     var msg = document.getElementById("paywallMsg");
     function say(text, ok) { msg.textContent = text; msg.className = "paywallErr" + (ok ? " paywallOk" : ""); msg.style.display = "block"; }
     fetch("/api/checkout/status").then(function (r) { return r.json(); }).then(function (st) {
-      if (!st.enabled) { badge.style.display = "block"; btn.disabled = true; btn.title = "Connect a Stripe test key to enable checkout — see PAYMENTS.md."; }
+      if (!st.enabled) { badge.style.display = "block"; btn.disabled = true; btn.title = "Connect a Stripe test key to enable checkout, see PAYMENTS.md."; }
     }).catch(function () {});
     btn.addEventListener("click", function () {
       btn.disabled = true;
