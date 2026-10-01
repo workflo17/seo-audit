@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#F2F3F5">
+<title>Site Audit · paste a website</title>
+<style>
+  :root{
+    --ground:#F2F3F5; --card:#FFFFFF; --ink:#1B1F23; --ink2:#5A6470; --line:#DDE1E6;
+    --accent:#E8590C; --accent-soft:#FDEEE3; --ok:#2F9E44; --bad:#C92A2A;
+    --shadow:0 1px 2px rgba(20,25,30,.06), 0 4px 14px rgba(20,25,30,.05);
+    --disp:Bahnschrift,'Arial Narrow',sans-serif; --mono:'Cascadia Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0 auto; max-width:760px; padding:0 20px 60px; background:var(--ground); color:var(--ink);
+       font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+  button,input{font:inherit; touch-action:manipulation}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+  header{padding:30px 0 8px}
+  .eyebrow{font:600 12px var(--disp); letter-spacing:2.4px; text-transform:uppercase; color:var(--accent)}
+  h1{font:700 clamp(26px,5vw,36px)/1.1 var(--disp); text-transform:uppercase; letter-spacing:.5px; margin:4px 0 4px; text-wrap:balance}
+  .sub{color:var(--ink2); font-size:13.5px}
+  form{background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:18px 20px; margin-top:16px}
+  label{display:block; font-size:12px; font-weight:600; color:var(--ink2); margin:12px 0 4px}
+  label:first-child{margin-top:0}
+  input{width:100%; border:1px solid var(--line); border-radius:9px; padding:10px 13px; background:var(--ground); color:var(--ink)}
+  #url{font-size:17px; padding:13px 15px}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:0 14px}
+  .runrow{display:flex; align-items:center; gap:14px; margin-top:16px}
+  #runBtn{background:var(--accent); color:#fff; border:0; border-radius:9px; padding:12px 26px; font:700 15px var(--disp);
+          text-transform:uppercase; letter-spacing:1px; cursor:pointer; box-shadow:var(--shadow)}
+  #runBtn[disabled]{opacity:.5; cursor:default}
+  .hint{color:var(--ink2); font-size:12px}
+  #log{margin-top:16px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow);
+       padding:14px 18px; display:none}
+  #log.on{display:block}
+  #log p{margin:3px 0; font:12.5px var(--mono); color:var(--ink2)}
+  #log p:last-child{color:var(--ink)}
+  #result{margin-top:16px; display:none; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--ok);
+          border-radius:12px; box-shadow:var(--shadow); padding:16px 20px}
+  #result.on{display:block}
+  #result h2{font:700 16px var(--disp); text-transform:uppercase; letter-spacing:1px; margin:0 0 6px}
+  #result ol{margin:6px 0 12px; padding-left:20px; font-size:13.5px; color:var(--ink2)}
+  .btns{display:flex; flex-wrap:wrap; gap:8px}
+  .btns a{font:600 13px 'Segoe UI'; color:var(--accent); border:1px solid var(--accent); border-radius:8px;
+          padding:8px 14px; text-decoration:none}
+  .btns a.primary{background:var(--accent); color:#fff}
+  #err{margin-top:16px; display:none; background:#FBEAEA; color:var(--bad); border-radius:10px; padding:12px 16px; font-size:13.5px}
+  h3.recent{font:700 13px var(--disp); text-transform:uppercase; letter-spacing:1.5px; color:var(--ink2); margin:28px 0 8px}
+  #recent{display:flex; flex-direction:column; gap:6px}
+  #recent a{display:flex; justify-content:space-between; gap:10px; background:var(--card); border:1px solid var(--line);
+            border-radius:9px; padding:9px 14px; text-decoration:none; color:var(--ink); font-size:13.5px}
+  #recent a span{color:var(--ink2); font:11.5px var(--mono)}
+  /* Owner-only deep mode. Rendered dark so it is never mistaken for the demo the
+     prospect sees, and only revealed when /api/mode says this request is mine. */
+  #ownerBox{margin-top:18px; border:1px solid #1B1F23; border-radius:12px; overflow:hidden}
+  #ownerBox[hidden]{display:none}
+  .ownerHead{display:flex; align-items:center; gap:10px; background:#1B1F23; color:#fff; padding:9px 14px}
+  .ownerHead b{font:700 12px var(--disp); text-transform:uppercase; letter-spacing:2px}
+  .ownerHead span{font-size:11.5px; color:#C6CCD3}
+  .ownerBody{padding:12px 14px 14px; background:#FAFBFC}
+  .switch{display:flex; align-items:center; gap:9px; font-size:13.5px; font-weight:600}
+  .switch input{width:auto; margin:0}
+  .ownerBody .grid{margin-top:8px}
+  .ownerBody label{margin-top:8px}
+  #proNote{font-size:12px; color:var(--ink2); margin:8px 0 0}
+  .tag{font:700 9.5px var(--disp); text-transform:uppercase; letter-spacing:1.2px; background:#1B1F23; color:#fff;
+       border-radius:9px; padding:2px 7px; margin-left:6px}
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important} }
+</style>
+</head>
+<body>
+<header>
+  <span class="eyebrow">Site Audit</span>
+  <h1>Paste a website. Get the pitch.</h1>
+  <p class="sub">Full crawl + Google Lighthouse + local checks → a client-ready report and a one-page leave-behind, both as PDF. Takes about two minutes; Lighthouse is the slow part.</p>
+</header>
+
+<form id="form">
+  <label for="url">Website</label>
+  <input id="url" type="url" name="url" placeholder="https://their-site.com" required autocomplete="off" spellcheck="false">
+  <div class="grid">
+    <div><label for="name">Business name <span class="hint">(blank = derived from the domain)</span></label>
+      <input id="name" name="name" autocomplete="off"></div>
+    <div><label for="town">Town / area</label>
+      <input id="town" name="town" placeholder="Astoria, NY" autocomplete="off"></div>
+    <div><label for="gphone">Phone Google shows <span class="hint">(enables the mismatch check)</span></label>
+      <input id="gphone" name="gphone" inputmode="tel" autocomplete="off"></div>
+    <div><label for="competitor">A competitor's site <span class="hint">(enables the keyword gap)</span></label>
+      <input id="competitor" name="competitor" type="url" autocomplete="off"></div>
+    <div><label for="rating">Google rating</label>
+      <input id="rating" name="rating" inputmode="decimal" placeholder="4.8" autocomplete="off"></div>
+    <div><label for="reviews">Review count</label>
+      <input id="reviews" name="reviews" inputmode="numeric" autocomplete="off"></div>
+  </div>
+  <div id="ownerBox" hidden>
+    <div class="ownerHead"><b>Owner</b><span>Not part of the demo. Nothing here is shown to a prospect or sold.</span></div>
+    <div class="ownerBody">
+      <label class="switch" for="pro"><input id="pro" type="checkbox"> Run the full audit instead of the demo pass</label>
+      <p id="proNote">Crawls the whole site instead of five pages, checks every internal link, probes redirects, 404 handling, headers, compression and TTFB, runs Lighthouse on mobile <em>and</em> desktop, and writes the 8-page technical report plus a work checklist. Ten to fifteen minutes on a small site.</p>
+      <div class="grid">
+        <div><label for="maxPages">Pages to crawl <span class="hint">(5-200)</span></label>
+          <input id="maxPages" inputmode="numeric" value="40" autocomplete="off"></div>
+        <div><label for="competitor2">A second competitor <span class="hint">(full audit only)</span></label>
+          <input id="competitor2" type="url" autocomplete="off"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="runrow">
+    <button id="runBtn" type="submit">Run the audit</button>
+    <span class="hint">Only the website field is required.</span>
+  </div>
+</form>
+
+<div id="log" aria-live="polite"></div>
+<div id="err" role="alert"></div>
+
+<div id="result">
+  <h2>Audit complete</h2>
+  <div id="scores" class="hint"></div>
+  <ol id="topFixes"></ol>
+  <div class="btns" id="links"></div>
+</div>
+
+<h3 class="recent">Recent audits</h3>
+<div id="recent"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const form = $("#form"), log = $("#log"), err = $("#err"), result = $("#result");
+let polling = null, owner = false;
+
+// The deep mode only exists for requests the server recognises as mine (loopback,
+// or an OWNER_KEY header). Everyone else never sees the control at all.
+fetch("/api/mode").then(r => r.json()).then(m => {
+  owner = !!m.owner;
+  if (owner) { $("#ownerBox").hidden = false; $("#pro").checked = true; syncRunLabel(); }
+}).catch(() => {});
+function syncRunLabel(){ $("#runBtn").textContent = owner && $("#pro").checked ? "Run the full audit" : "Run the audit"; }
+document.addEventListener("change", e => { if (e.target.id === "pro") syncRunLabel(); });
+
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  err.style.display = "none"; result.classList.remove("on");
+  log.classList.add("on"); log.innerHTML = "";
+  $("#runBtn").disabled = true;
+  const opts = Object.fromEntries(["url","name","town","gphone","competitor","rating","reviews"]
+    .map(k => [k, $("#"+k).value.trim()]).filter(([,v]) => v));
+  if (owner && $("#pro").checked) {
+    opts.mode = "pro";
+    opts.maxPages = $("#maxPages").value.trim() || "40";
+    opts.competitors = [$("#competitor").value.trim(), $("#competitor2").value.trim()].filter(Boolean);
+  }
+  const r = await fetch("/run", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(opts) });
+  const j = await r.json();
+  if (j.error) return fail(j.error);
+  let seen = 0;
+  polling = setInterval(async () => {
+    const s = await (await fetch("/status?id=" + j.id)).json();
+    for (; seen < s.stages.length; seen++) {
+      const p = document.createElement("p"); p.textContent = s.stages[seen]; log.appendChild(p);
+    }
+    if (s.done) {
+      clearInterval(polling); $("#runBtn").disabled = false;
+      if (s.error) return fail(s.error);
+      showResult(s);
+      loadRecent();
+    }
+  }, 800);
+});
+function fail(msg){
+  clearInterval(polling); $("#runBtn").disabled = false;
+  err.textContent = msg + " — check the URL and try again.";
+  err.style.display = "block";
+}
+function showResult(s){
+  result.classList.add("on");
+  const base = "/out/" + s.slug + "/";
+  if (s.pro) {
+    $("#scores").textContent =
+      `Health ${s.scores.overall}/100: speed ${s.scores.speed} · content ${s.scores.content} · technical ${s.scores.tech} · local ${s.scores.local} · trust ${s.scores.trust}` +
+      ` · ${s.summary.pages} pages · ${s.summary.links} links checked · ${s.summary.dead} dead · ${s.summary.findings} findings`;
+    $("#topFixes").innerHTML = s.top.map(t => `<li>${t}</li>`).join("");
+    $("#links").innerHTML =
+      `<a class="primary" href="${base}report-pro.html" target="_blank" rel="noopener">Full technical report</a>` +
+      `<a href="${base}report-pro.pdf" target="_blank" rel="noopener">Report PDF</a>` +
+      `<a href="${base}checklist.pdf" target="_blank" rel="noopener">Work checklist PDF</a>` +
+      `<a href="${base}audit-pro.json" target="_blank" rel="noopener">Raw data</a>` +
+      `<a href="${base}lighthouse.json" target="_blank" rel="noopener">Lighthouse (mobile)</a>`;
+    return;
+  }
+  $("#scores").textContent = s.scores ? `Lighthouse: speed ${s.scores.perf} · SEO ${s.scores.seo}` : "Lighthouse did not run; crawl findings only.";
+  $("#topFixes").innerHTML = s.top.map(t => `<li>${t}</li>`).join("");
+  $("#links").innerHTML =
+    `<a class="primary" href="${base}report.html" target="_blank" rel="noopener">View full report</a>` +
+    `<a href="${base}report.pdf" target="_blank" rel="noopener">Report PDF</a>` +
+    `<a href="${base}leavebehind.pdf" target="_blank" rel="noopener">Leave-behind PDF</a>` +
+    `<a href="${base}audit.json" target="_blank" rel="noopener">Raw data</a>`;
+}
+async function loadRecent(){
+  const rows = await (await fetch("/recent")).json();
+  $("#recent").innerHTML = rows.length ? rows.map(r =>
+    `<a href="/out/${r.slug}/${r.hasPro ? "report-pro.html" : r.hasReport ? "report.html" : "leavebehind.html"}" target="_blank" rel="noopener">
+       <b>${r.name}${r.hasPro ? '<span class="tag">full</span>' : ""}</b><span>${r.date}</span></a>`).join("") : '<span class="hint">None yet.</span>';
+}
+loadRecent();
+</script>
+</body>
+</html>

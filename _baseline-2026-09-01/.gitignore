@@ -1,0 +1,12 @@
+# Generated audit reports. These contain real client and prospect names and
+# their sites' findings, so they never leave this machine.
+out/
+
+# Documents the $29 unlock price for this tool. Left out of the public repo
+# because a pricing decision is not something to publish by accident; add it
+# back with one line here if you want it read.
+PAYMENTS.md
+
+node_modules/
+.env
+*.log
