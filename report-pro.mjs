@@ -7,6 +7,7 @@
 import { BRAND } from "./lib.mjs";
 import { CSS as BASE_CSS } from "./report.mjs";
 import { compare, standing, host } from "./compete.mjs";
+import { diffRuns } from "./history.mjs";
 
 // Which competitors a search found, with the query, and what the search could not do.
 function foundLine(discovery, comps) {
@@ -197,7 +198,7 @@ function buildPages(d, client) {
 
   const page1 = `<div class="page">${head(d, `${d.town ? esc(d.town) + " · " : ""}${esc(d.url)}${d.rating ? ` · ${esc(d.rating)}★${d.reviews ? ` (${esc(d.reviews)})` : ""}` : ""}${siteLine(d) ? " · " + siteLine(d) : ""}`, client)}
     ${d.runNotes && d.runNotes.length ? `<div class="runnote"><b>What this run could not measure.</b><ul>${d.runNotes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
-    ${d.history ? `<div class="histnote">Since ${esc(d.history.previous.date)}: ${esc(d.history.diff.summary)}</div>` : ""}
+    ${d.history ? `<div class="histnote">Since ${esc(d.history.previous.date)}: ${esc(d.history.diff.summary)}${(d.history.diff.warnings || []).length ? `<ul class="ev">${d.history.diff.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}</div>` : ""}
     ${verdict(d)}
     <div class="hero">
       ${shot ? `<div class="heroShot"><img src="${shot}" alt="Mobile screenshot of the homepage"></div>` : ""}
@@ -207,7 +208,7 @@ function buildPages(d, client) {
       </div>
     </div>
     <div class="stats">
-      <div class="stat"><b>${pages.length}</b><span>pages crawled</span></div>
+      <div class="stat"><b>${pages.length}</b><span>${d.crawl.discovered > pages.length ? `pages read of ${d.crawl.discovered} found` : "pages crawled"}</span></div>
       <div class="stat"><b>${d.crawl.linksChecked}</b><span>links checked</span></div>
       <div class="stat"><b class="${d.links.brokenInternal ? "r" : "g"}">${d.links.brokenInternal + d.links.brokenExternal}${d.links.reliable === false ? "*" : ""}</b><span>dead links${d.links.reliable === false ? "*" : ""}</span></div>
       <div class="stat"><b>${d.content.totals.words.toLocaleString()}</b><span>words of copy</span></div>
@@ -489,4 +490,65 @@ export function buildProChecklist(d) {
     </div>
     ${foot(d, "Checklist")}
   </div></body></html>`;
+}
+
+// ---------- before and after ----------
+// One client-safe page comparing an earlier run of the same site with this one: the two
+// score cards side by side, what got fixed, what is new, what is still open, and the
+// caveats when the two runs were not measured the same way. This is the page a client is
+// promised at the end of a job, built from the same evidence as the two reports.
+const COMPARE_CSS = `
+  .thenNow{display:flex; gap:14px; margin:12px 0}
+  .thenNow > div{flex:1; border:1px solid #DDE1E6; border-radius:10px; padding:10px 12px}
+  .thenNow h3{margin:0 0 6px; font:700 10px Bahnschrift,sans-serif; text-transform:uppercase; letter-spacing:1.2px; color:#5A6470}
+  .thenNow .now h3{color:#E8590C}
+  .big{display:flex; align-items:baseline; gap:8px; margin-bottom:6px}
+  .big b{font:700 44px/1 Bahnschrift,sans-serif}
+  .big span{font-size:10px; text-transform:uppercase; letter-spacing:1px; color:#5A6470}
+  .delta{font:700 13px Bahnschrift,sans-serif; padding:2px 7px; border-radius:6px; background:#EEF0F2; color:#3D4650}
+  .delta.up{background:#E6F4EA; color:#2F9E44}.delta.down{background:#FBEAEA; color:#C92A2A}
+  .lists{display:flex; gap:12px; margin:6px 0}
+  .lists > div{flex:1; border:1px solid #DDE1E6; border-radius:8px; padding:8px 10px}
+  .lists h4{margin:0 0 4px; font:700 10px Bahnschrift,sans-serif; text-transform:uppercase; letter-spacing:1.2px}
+  .lists h4.fixed{color:#2F9E44}.lists h4.open{color:#B4690E}.lists h4.new{color:#C92A2A}
+  .lists ul{margin:0; padding-left:14px; font-size:10.5px}
+  .lists li{margin:2px 0}
+`;
+const signed = n => n == null ? "" : n > 0 ? `+${n}` : String(n);
+const deltaTag = n => n == null || n === 0 ? `<span class="delta">no change</span>` : `<span class="delta ${n > 0 ? "up" : "down"}">${signed(n)}</span>`;
+const barRow = (label, v, dv) => v === null
+  ? `<div class="bar"><i>${label}</i><div class="track"></div><b class="muted">not scored</b></div>`
+  : `<div class="bar"><i>${label}</i><div class="track"><div style="width:${v}%;background:${clr(v)}"></div></div><b class="${cls(v)}">${v}${dv ? ` <small>${signed(dv)}</small>` : ""}</b></div>`;
+
+export function buildCompareReport(prev, cur) {
+  const diff = cur.history && cur.history.diff ? cur.history.diff : diffRuns(prev, cur);
+  const ps = prev.scores || {}, cs = cur.scores || {};
+  const card = (d, s, label, now) => `<div class="${now ? "now" : "then"}"><h3>${label}</h3>
+    <div class="big"><b class="${cls(s.overall ?? 0)}">${s.overall ?? "?"}</b><span>site health</span>${now ? deltaTag(diff.scoreDelta.overall) : ""}</div>
+    ${barRow("Speed", s.speed ?? null, now ? diff.scoreDelta.speed : null)}${barRow("Content", s.content ?? null, now ? diff.scoreDelta.content : null)}${barRow("Technical", s.tech ?? null, now ? diff.scoreDelta.tech : null)}${barRow("Local", s.local ?? null, now ? diff.scoreDelta.local : null)}${barRow("Trust", s.trust ?? null, now ? diff.scoreDelta.trust : null)}
+    <p class="note">${esc(d.date || "")} · ${(d.crawl && d.crawl.pages ? d.crawl.pages.length : 0)} pages read · ${(d.links ? (d.links.brokenInternal || 0) + (d.links.brokenExternal || 0) : 0)} dead links</p></div>`;
+  const still = (cur.findings || []).filter(f => !diff.added.some(a => (a.id != null && a.id === f.id) || a.title === f.title)).slice(0, 8);
+  const list = (items, empty) => items.length ? `<ul>${items.map(x => `<li>${esc(x.title)}</li>`).join("")}</ul>` : `<p class="muted">${empty}</p>`;
+  const page = `<div class="page">
+    <header><div class="brand">${esc(BRAND.name)}<small>Before and after</small></div><span class="date">${esc(diff.prevDate || "")} to ${esc(diff.curDate || "")}</span></header>
+    <h1>${esc(cur.name)}</h1><div class="sub">${esc(cur.url)}${siteLine(cur) ? " · " + siteLine(cur) : ""}</div>
+    <div class="histnote">${esc(diff.summary)}</div>
+    <div class="thenNow">${card(prev, ps, "Then", false)}${card(cur, cs, "Now", true)}</div>
+    <div class="stats">
+      <div class="stat"><b class="g">${diff.resolved.length}</b><span>fixed since then</span></div>
+      <div class="stat"><b class="y">${diff.persisting}</b><span>still open</span></div>
+      <div class="stat"><b class="r">${diff.added.length}</b><span>new since then</span></div>
+      <div class="stat"><b>${signed(diff.brokenLinksDelta) || "0"}</b><span>dead links</span></div>
+      <div class="stat"><b>${signed(diff.pagesDelta) || "0"}</b><span>pages read</span></div>
+    </div>
+    <div class="lists">
+      <div><h4 class="fixed">Fixed since then</h4>${list(diff.resolved.slice(0, 12), "Nothing from the earlier run has been resolved yet.")}</div>
+      <div><h4 class="open">Still open, biggest first</h4>${list(still, "Nothing is open.")}</div>
+      <div><h4 class="new">New since then</h4>${list(diff.added.slice(0, 8), "Nothing new.")}</div>
+    </div>
+    ${(diff.warnings || []).length ? `<div class="runnote"><b>Read the numbers with this in mind.</b><ul>${diff.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
+    <p class="note">Health is out of 100 across speed, content, technical setup${cur.siteType === "local" ? ", local presence" : ""} and trust signals, measured the same way both times. Speed is Google's Lighthouse on a phone connection and moves a few points between runs on its own.</p>
+    <footer><div><b>${esc(BRAND.contact)}</b></div><div>${esc(cur.name)}</div></footer>
+  </div>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cur.name)} · before and after</title><style>${PRO_CSS}${COMPARE_CSS}</style></head><body>${page}</body></html>`;
 }

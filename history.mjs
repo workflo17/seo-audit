@@ -2,18 +2,31 @@
 // each run's report and JSON in out/<slug>/runs/<stamp>/ and diffs two runs so the
 // next report can say what changed since last time. Zero npm dependencies.
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 
 const FILES = ["audit-pro.json", "report-pro.html", "report-pro.pdf", "checklist.html",
-  "checklist.pdf", "lighthouse.json", "lighthouse-desktop.json"];
+  "checklist.pdf", "compare.html", "compare.pdf", "lighthouse.json", "lighthouse-desktop.json"];
 const MAX_RUNS = 24;
+
+// out/ never leaves the machine it was made on, so a run made here and a run made on the
+// other machine could not be compared. A second archive root fixes that: a synced folder
+// (Drive, Dropbox, OneDrive) or a private repo checkout that both machines can see. Set
+// SEO_AUDIT_ARCHIVE, or pass --archive to pro.mjs. The shared copy is the record, so it is
+// never pruned.
+export function extraRoots(opts = {}) {
+  const raw = [opts.archive, process.env.SEO_AUDIT_ARCHIVE].filter(Boolean).map(s => String(s).trim()).filter(Boolean);
+  return [...new Set(raw)];
+}
 
 // Copies the run's output files into out/<slug>/runs/<stamp>/, then prunes to the
 // newest MAX_RUNS runs. stamp is caller-supplied so this stays a pure copy, no clock.
-export function archiveRun(outDir, stamp) {
+// With roots, the same files also go to <root>/<slug>/runs/<stamp>/ for each shared root;
+// a shared folder that is missing or read-only is skipped, never a reason to lose the run.
+export function archiveRun(outDir, stamp, { roots = [] } = {}) {
+  let runDir = null;
   try {
     const runsDir = join(outDir, "runs");
-    const runDir = join(runsDir, stamp);
+    runDir = join(runsDir, stamp);
     mkdirSync(runDir, { recursive: true });
     for (const f of FILES) {
       const src = join(outDir, f);
@@ -23,8 +36,18 @@ export function archiveRun(outDir, stamp) {
       .filter(d => d.isDirectory()).map(d => d.name).sort();
     const excess = dirs.length - MAX_RUNS;
     if (excess > 0) for (const name of dirs.slice(0, excess)) rmSync(join(runsDir, name), { recursive: true, force: true });
-    return runDir;
-  } catch { return null; }
+  } catch { runDir = null; }
+  for (const root of roots) {
+    try {
+      const shared = join(root, basename(outDir), "runs", stamp);
+      mkdirSync(shared, { recursive: true });
+      for (const f of FILES) {
+        const src = join(outDir, f);
+        if (existsSync(src)) copyFileSync(src, join(shared, f));
+      }
+    } catch { /* the shared folder is a convenience; the local copy above is the run */ }
+  }
+  return runDir;
 }
 
 function readRunJson(runDir) {
@@ -49,10 +72,8 @@ export function listRuns(outDir) {
   return out;
 }
 
-// The newest run other than excludeStamp (the run currently being written), or null
-// when this is the first run. Used to build the "what changed" diff for the report.
-export function previousRun(outDir, excludeStamp) {
-  const runsDir = join(outDir, "runs");
+// The newest readable run in one runs/ folder other than excludeStamp, or null.
+function newestRun(runsDir, excludeStamp) {
   let names;
   try { names = readdirSync(runsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name); }
   catch { return null; }
@@ -65,27 +86,62 @@ export function previousRun(outDir, excludeStamp) {
   return null;
 }
 
+// The newest run other than excludeStamp (the run currently being written), or null
+// when this is the first run. Used to build the "what changed" diff for the report.
+// Shared roots are searched too, so a run made on the other machine counts as history.
+export function previousRun(outDir, excludeStamp, { roots = [] } = {}) {
+  const dirs = [join(outDir, "runs"), ...roots.map(r => join(r, basename(outDir), "runs"))];
+  let best = null;
+  for (const runsDir of dirs) {
+    const r = newestRun(runsDir, excludeStamp);
+    if (r && (!best || r.stamp > best.stamp)) best = r;
+  }
+  return best;
+}
+
 // The folder is named after the business, so an audit run under another name ("examplebrand"
 // one day, "Example Brand" the next) used to start with no history. When this site's own folder
 // has nothing earlier, every other folder's archived runs are checked for the same host, and
 // the newest one before this run is used.
 const hostKey = u => { try { return new URL(u).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+// root may be one folder or a list of them (the local out/ plus any shared archive roots).
 export function previousRunForHost(root, url, excludeStamp) {
   const want = hostKey(url);
   if (!want) return null;
-  let dirs;
-  try { dirs = readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith("_")).map(d => d.name); }
-  catch { return null; }
   let best = null;
-  for (const name of dirs) {
-    for (const r of listRuns(join(root, name))) {
-      if (r.stamp === excludeStamp || (excludeStamp && r.stamp > excludeStamp)) continue;
-      if (best && r.stamp <= best.stamp) continue;
-      const data = readRunJson(r.dir);
-      if (data && hostKey(data.url) === want) best = { dir: r.dir, stamp: r.stamp, data, folder: name };
+  for (const r0 of Array.isArray(root) ? root : [root]) {
+    let dirs;
+    try { dirs = readdirSync(r0, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith("_")).map(d => d.name); }
+    catch { continue; }
+    for (const name of dirs) {
+      for (const r of listRuns(join(r0, name))) {
+        if (r.stamp === excludeStamp || (excludeStamp && r.stamp > excludeStamp)) continue;
+        if (best && r.stamp <= best.stamp) continue;
+        const data = readRunJson(r.dir);
+        if (data && hostKey(data.url) === want) best = { dir: r.dir, stamp: r.stamp, data, folder: name };
+      }
     }
   }
   return best;
+}
+
+// Two runs only compare cleanly when the same tool, with the same settings, scored both.
+// Anything that differs is said out loud, so a score that moved for a reason other than
+// the site is not read as the site.
+export function runWarnings(prev, cur) {
+  const out = [];
+  const pv = prev.tool?.version ?? null, cv = cur.tool?.version ?? null;
+  if (pv && cv && pv !== cv) out.push(`The earlier run used tool version ${pv} and this one ${cv}, so some rules or weights may have changed between them.`);
+  else if (!pv && cv) out.push("The earlier run was made before the tool recorded its version, so a rule change between the two runs cannot be ruled out.");
+  const differs = (a, b) => a != null && b != null && String(a) !== String(b);
+  if (differs(prev.siteType, cur.siteType)) out.push(`The earlier run was scored as a ${prev.siteType} site and this one as ${cur.siteType}; the rules differ, so the scores are not comparable.`);
+  if (differs(prev.industry || "none", cur.industry || "none")) out.push(`The earlier run used industry ${prev.industry || "none"} and this one ${cur.industry || "none"}; the regulated-marketing checks differ between them.`);
+  if (differs(prev.maxPages, cur.maxPages)) out.push(`The earlier run read up to ${prev.maxPages} pages and this one up to ${cur.maxPages}; a bigger crawl can surface findings a smaller one never reached.`);
+  const pl = prev.tool?.settings?.lhRuns, cl = cur.tool?.settings?.lhRuns;
+  if (differs(pl, cl)) out.push(`Speed was the middle of ${pl} Lighthouse runs then and ${cl} now.`);
+  const plh = prev.tool?.lighthouse, clh = cur.tool?.lighthouse;
+  if (differs(plh, clh)) out.push(`Lighthouse was ${plh} then and ${clh} now; speed scores shift between versions.`);
+  return out;
 }
 
 // Findings rename their wording between runs ("3 pages have no meta description" becomes
@@ -145,10 +201,11 @@ export function diffRuns(prevData, curData) {
   if (resolved.length) parts.push(`${resolved.length} finding${resolved.length === 1 ? "" : "s"} resolved`);
   if (added.length) parts.push(`${added.length} new`);
   const summary = parts.length ? `${bits[0]}: ${parts.join(", ")}.` : `${bits[0]}, no finding changes.`;
+  const warnings = runWarnings(prevData, curData);
 
   return {
     prevDate: prevData.date ?? null, curDate: curData.date ?? null, scoreDelta,
-    resolved, added, persisting, pagesDelta, brokenLinksDelta, summary,
+    resolved, added, persisting, pagesDelta, brokenLinksDelta, summary, warnings,
   };
 }
 
@@ -213,6 +270,37 @@ if (process.argv.includes("--selftest")) {
   const curTitleOnly = { scores: {}, findings: [{ title: "1 page has no meta description" }] };
   const dTitle = diffRuns(prevTitleOnly, curTitleOnly);
   check("diffRuns matches findings by stripped title", dTitle.resolved.length === 0 && dTitle.added.length === 0 && dTitle.persisting === 1);
+
+  // Caveats: two runs made by different tool versions, or with different settings, say so.
+  const stamped = v => ({ ...runB, siteType: "brand", industry: "cannabis", maxPages: 40, tool: { version: v, lighthouse: "lighthouse@13.4.1", settings: { lhRuns: 3 } } });
+  check("diffRuns: an unstamped earlier run gets a caveat", diffRuns(runA, stamped("abc1234")).warnings.some(w => /before the tool recorded/.test(w)));
+  check("diffRuns: same version and settings, no caveats", diffRuns(stamped("abc1234"), stamped("abc1234")).warnings.length === 0);
+  check("diffRuns: a different version is named", diffRuns(stamped("abc1234"), stamped("def5678")).warnings.some(w => /abc1234 and this one def5678/.test(w)));
+  check("diffRuns: a different site type is named", diffRuns({ ...stamped("x"), siteType: "local" }, stamped("x")).warnings.some(w => /local site and this one as brand/.test(w)));
+  check("diffRuns: a different page cap is named", diffRuns({ ...stamped("x"), maxPages: 20 }, stamped("x")).warnings.some(w => /up to 20 pages/.test(w)));
+  check("diffRuns: a different Lighthouse pin is named", diffRuns({ ...stamped("x"), tool: { version: "x", lighthouse: "lighthouse@12.0.0", settings: { lhRuns: 3 } } }, stamped("x")).warnings.some(w => /lighthouse@12.0.0 then/.test(w)));
+  check("extraRoots reads the option and ignores blanks", extraRoots({ archive: " C:/shared " }).includes("C:/shared") && extraRoots({ archive: "" }).length === (process.env.SEO_AUDIT_ARCHIVE ? 1 : 0));
+
+  // A shared archive root: the run is copied there too, and it counts as history for a
+  // machine whose own out/ has nothing newer.
+  const shared = mkdtempSync(join(os.tmpdir(), "history-shared-"));
+  const siteDir = join(mkdtempSync(join(os.tmpdir(), "history-site-")), "example-site");
+  mkdirSync(siteDir, { recursive: true });
+  writeFileSync(join(siteDir, "audit-pro.json"), JSON.stringify({ ...runA, url: "https://shared.example" }));
+  archiveRun(siteDir, "2026-10-01T1000", { roots: [shared] });
+  check("archiveRun copies the run into the shared root", existsSync(join(shared, "example-site", "runs", "2026-10-01T1000", "audit-pro.json")));
+  // The other machine made a newer run and only the shared root has it.
+  const other = join(shared, "example-site", "runs", "2026-10-05T0900");
+  mkdirSync(other, { recursive: true });
+  writeFileSync(join(other, "audit-pro.json"), JSON.stringify({ ...runB, url: "https://shared.example" }));
+  const viaShared = previousRun(siteDir, "2026-10-09T1200", { roots: [shared] });
+  check("previousRun prefers the newer run found only in the shared root", viaShared && viaShared.stamp === "2026-10-05T0900");
+  check("previousRun without roots still sees only the local run", previousRun(siteDir, "2026-10-09T1200").stamp === "2026-10-01T1000");
+  check("previousRun ignores a shared root that does not exist", previousRun(siteDir, "2026-10-09T1200", { roots: [join(shared, "nope")] }).stamp === "2026-10-01T1000");
+  const byRoots = previousRunForHost([join(siteDir, ".."), shared], "https://www.shared.example/", "2026-10-09T1200");
+  check("previousRunForHost searches every root it is given", byRoots && byRoots.stamp === "2026-10-05T0900");
+  rmSync(shared, { recursive: true, force: true });
+  rmSync(join(siteDir, ".."), { recursive: true, force: true });
 
   for (let i = 0; i < 26; i++) {
     writeFileSync(join(outDir, "audit-pro.json"), JSON.stringify({ ...runB, date: `2026-09-${String(i).padStart(2, "0")}` }));

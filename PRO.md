@@ -40,7 +40,9 @@ Flags: `--pages` (default 40, capped at 200), `--type local|brand|store|b2b|gene
 Lighthouse, default 2), `--lh-runs 1..5` (mobile homepage runs, default 3, the middle score
 is used), `--competitor URL` (repeatable, up to three), `--find-competitors`
 (search for the rest of the three, see `discover.mjs`), `--gphone`, `--town`, `--rating`,
-`--reviews`, `--no-render` (skip the browser fallback for JavaScript sites).
+`--reviews`, `--no-render` (skip the browser fallback for JavaScript sites), `--archive DIR`
+(a shared archive folder that both machines can see; `SEO_AUDIT_ARCHIVE` does the same for
+every entry point, see Comparing runs below).
 
 Site types. `local` is a business that serves a place, and the only type that runs and
 scores the local-presence rules. `brand` sells a product through other people's stores,
@@ -79,7 +81,25 @@ Output per site, in `out/<slug>/`:
 - `findings.csv`, `pages.csv`: for a spreadsheet
 - `audit-pro.json`: everything the engine saw
 - `lighthouse*.json`: the raw runs
+- `compare.html` / `.pdf`: when an earlier run of this site exists, a one-page before and after for the client: both score cards, what was fixed, what is new, what is still open, and the caveats below
 - `runs/<stamp>/`: an archive of this run, kept 24 deep
+
+## Comparing runs
+
+`out/` is gitignored and never leaves the machine, so a run made here and a run made on
+the other machine could not be compared. A shared archive root fixes that: set
+`SEO_AUDIT_ARCHIVE` to a folder both machines can see (a synced Drive, Dropbox or OneDrive
+folder, or a private repo checkout), or pass `--archive DIR` to `pro.mjs`. Every run is
+copied to `<root>/<slug>/runs/<stamp>/` as well as `out/`, nothing there is ever pruned, and
+the newest run found in either place is the one the next run compares against. A shared
+folder that is missing or read-only is skipped, never a reason to lose the run.
+
+Each run records what scored it: the git commit (`tool.version`), the Lighthouse pin, and
+the settings (site type, industry, page cap, Lighthouse runs and inner pages). When the two
+runs being compared differ on any of those, the diff carries caveats, printed on page one
+of the report, on the before-and-after page, and by `pro.mjs`, so a score that moved
+because the ruler changed is not read as the site changing. A run made before versions
+were stamped gets the caveat that a rule change cannot be ruled out.
 
 ## How "owner-only" is enforced
 
@@ -280,7 +300,8 @@ beside it, each with an exported contract and a self-test:
 - `render.mjs`: one page through headless Edge, for JavaScript sites
 - `schema.mjs`: structured data parsed properly, including completeness and policy checks
 - `lhdetail.mjs`: everything actionable inside a Lighthouse 13 report, including screenshots
-- `history.mjs`: archive a run, list runs, diff two runs, and find the last run of the
+- `history.mjs`: archive a run (locally and to any shared root), list runs, diff two runs
+  with caveats when they were not measured the same way, and find the last run of the
   same host when the folder name (the business name) changed
 - `textstats.mjs`: readability, duplication, stuffing, placeholders, anchors, headings
 - `tlscheck.mjs`: certificate expiry and hostname coverage, and the HTTP version the TLS

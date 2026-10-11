@@ -7,12 +7,12 @@
 //        --competitor https://rival.com --competitor https://other.com --rating 5.0 --reviews 14
 // Output: out/<slug>/ → audit-pro.json · report-pro.html/.pdf · checklist.html/.pdf
 //                       lighthouse.json + lighthouse-desktop.json (raw)
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { printPdf } from "./lib.mjs";
 import { runProAudit } from "./lib-pro.mjs";
-import { buildProReport, buildProChecklist, buildClientReport } from "./report-pro.mjs";
-import { archiveRun } from "./history.mjs";
+import { buildProReport, buildProChecklist, buildClientReport, buildCompareReport } from "./report-pro.mjs";
+import { archiveRun, extraRoots } from "./history.mjs";
 import { outreachDraft, findingsCsv, pagesCsv } from "./batch.mjs";
 
 const argv = process.argv.slice(2);
@@ -32,6 +32,7 @@ const data = await runProAudit({
   name, url, maxPages: flag("pages"), gphone: flag("gphone"), town: flag("town"),
   competitors: flagAll("competitor"), findCompetitors: argv.includes("--find-competitors"), rating: flag("rating"), reviews: flag("reviews"),
   type: flag("type"), industry: flag("industry"), lhPages: flag("lh-pages"), lhRuns: flag("lh-runs"), render: argv.includes("--no-render") ? false : undefined,
+  archive: flag("archive"),
 }, s => console.log("· " + s));
 
 const reportHtml = join(data.outDir, "report-pro.html");
@@ -43,13 +44,23 @@ writeFileSync(checkHtml, buildProChecklist(data));
 try { printPdf(reportHtml, join(data.outDir, "report-pro.pdf")); } catch { console.log("report PDF failed; HTML written"); }
 try { printPdf(clientHtml, join(data.outDir, "report-client.pdf")); } catch { console.log("client report PDF failed; HTML written"); }
 try { printPdf(checkHtml, join(data.outDir, "checklist.pdf")); } catch { console.log("checklist PDF failed; HTML written"); }
+// When an earlier run of this site exists, the before-and-after page a client is shown.
+if (data.history && data.history.previous.dir) {
+  try {
+    const prevData = JSON.parse(readFileSync(join(data.history.previous.dir, "audit-pro.json"), "utf8"));
+    const cmpHtml = join(data.outDir, "compare.html");
+    writeFileSync(cmpHtml, buildCompareReport(prevData, data));
+    try { printPdf(cmpHtml, join(data.outDir, "compare.pdf")); } catch { console.log("compare PDF failed; HTML written"); }
+  } catch (e) { console.log("compare page skipped: " + (e.message || e)); }
+}
 // The paperwork around the audit: a draft to paste into an email (never sent by software),
 // and spreadsheet exports of the findings and the crawl.
 writeFileSync(join(data.outDir, "outreach.txt"), outreachDraft(data));
 writeFileSync(join(data.outDir, "findings.csv"), findingsCsv(data));
 writeFileSync(join(data.outDir, "pages.csv"), pagesCsv(data));
-// Keep this run so the next one can say what changed.
-archiveRun(data.outDir, data.stamp);
+// Keep this run so the next one can say what changed, in the shared archive too if there is one.
+const roots = extraRoots({ archive: flag("archive") });
+archiveRun(data.outDir, data.stamp, { roots });
 
 const s = data.scores;
 console.log(`\n${name}: health ${s.overall}/100 (speed ${s.speed} · content ${s.content} · technical ${s.tech} · local ${s.local} · trust ${s.trust})`);
@@ -60,3 +71,8 @@ data.fixes.forEach((f, i) => console.log(`  ${i + 1}. [${f.sev}] ${f.title}`));
 for (const note of data.runNotes || []) console.log("  note: " + note);
 if (data.history) console.log("  since " + data.history.previous.date + ": " + data.history.diff.summary);
 console.log(`  ${Math.round((Date.now() - t0) / 1000)}s · out: ${data.outDir}`);
+if (data.history) {
+  for (const w of data.history.diff.warnings || []) console.log(`  caveat: ${w}`);
+  console.log(`  before and after: ${join(data.outDir, "compare.pdf")}`);
+}
+if (roots.length) console.log(`  archived to ${roots.join(", ")}`);

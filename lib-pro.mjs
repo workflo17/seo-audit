@@ -11,11 +11,20 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { ROOT, mine, keywords, measureLighthouse, decode, attr } from "./lib.mjs";
+import { ROOT, LIGHTHOUSE, mine, keywords, measureLighthouse, decode, attr } from "./lib.mjs";
 import { renderDom, renderAvailable } from "./render.mjs";
 import { extractSchema } from "./schema.mjs";
 import { lighthouseDetail } from "./lhdetail.mjs";
-import { previousRun, previousRunForHost, diffRuns } from "./history.mjs";
+import { previousRun, previousRunForHost, diffRuns, extraRoots } from "./history.mjs";
+
+// The commit this run was scored with, so two runs can say whether the rules changed
+// between them. Null outside a git checkout (a copied folder), never a guess.
+function toolVersion() {
+  try {
+    return execFileSync("git", ["-C", ROOT, "rev-parse", "--short", "HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }).trim() || null;
+  } catch { return null; }
+}
 import { readability, keywordStuffing, nearDuplicates, boilerplateRatio, placeholderText, ctaAboveFold,
          anchorQuality, headingOutline, titleH1Match } from "./textstats.mjs";
 import { tlsInfo } from "./tlscheck.mjs";
@@ -1554,6 +1563,8 @@ export async function runProAudit(opts, stage = () => {}) {
     detailDesktop: detailDesktop.ok ? { screenshots: { final: detailDesktop.screenshots.final }, weight: detailDesktop.weight,
       savings: detailDesktop.savings.slice(0, 8), lcp: detailDesktop.lcp } : null,
     stamp,
+    // What scored this run, so a later run can tell whether the ruler changed (history.mjs).
+    tool: { version: toolVersion(), lighthouse: LIGHTHOUSE, settings: { siteType, industry: industry || null, maxPages, lhRuns, lhPages } },
     content: {
       totals: { pages: htmlPages.length, words: htmlPages.reduce((a, p) => a + (p.wordCount || 0), 0), images: imgTotal, altPct },
       noTitle: noTitle.map(p => p.path), dupTitles, noMeta: noMeta.map(p => p.path), dupMetas,
@@ -1573,9 +1584,12 @@ export async function runProAudit(opts, stage = () => {}) {
   // What changed since the last run of this same site, if there was one. The folder is named
   // after the business, so when it has no earlier run, earlier runs of the same host are
   // looked for under any other name.
-  const prev = previousRun(outDir, stamp) || previousRunForHost(join(ROOT, "out"), base, stamp);
+  // Shared archive roots (SEO_AUDIT_ARCHIVE or --archive) count as history too, so a run
+  // made on the other machine is found.
+  const roots = extraRoots(opts);
+  const prev = previousRun(outDir, stamp, { roots }) || previousRunForHost([join(ROOT, "out"), ...roots], base, stamp);
   data.history = prev && prev.data ? {
-    previous: { stamp: prev.stamp, date: prev.data.date, scores: prev.data.scores, findings: (prev.data.findings || []).length },
+    previous: { stamp: prev.stamp, date: prev.data.date, scores: prev.data.scores, findings: (prev.data.findings || []).length, dir: prev.dir },
     diff: diffRuns(prev.data, data),
   } : null;
   writeFileSync(join(outDir, "audit-pro.json"), JSON.stringify(data, null, 2));

@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ROOT, printPdf } from "./lib.mjs";
 import { buildProReport, buildProChecklist, buildClientReport } from "./report-pro.mjs";
-import { archiveRun } from "./history.mjs";
+import { archiveRun, extraRoots } from "./history.mjs";
 // lib-pro.mjs is loaded lazily inside runBatch, not at module load: the CSV,
 // draft and report-builder functions below are pure and have to work (and
 // self-test) even on a machine where the deep-audit engine cannot import.
@@ -228,7 +228,7 @@ export async function runBatch(rows, { maxPages, type, industry, findCompetitors
       writeFileSync(join(data.outDir, "findings.csv"), findingsCsv(data));
       writeFileSync(join(data.outDir, "pages.csv"), pagesCsv(data));
       // Every batch run is archived so the next pass over the same list can show what changed.
-      archiveRun(data.outDir, data.stamp);
+      archiveRun(data.outDir, data.stamp, { roots: extraRoots() });
       results.push({
         name: data.name, url: data.url, slug: data.slug, scores: data.scores,
         top: (data.findings || []).slice(0, 3).map(f => f.title), outDir: data.outDir,
