@@ -77,7 +77,11 @@ node batch.mjs prospects.csv --pages 30
 
 Every run is archived under `out/<slug>/runs/`, so the next audit of the same site opens
 with what changed since the last one. The folder is named after the business; when it has
-no earlier run, the last run of the same host under any other name is used.
+no earlier run, the last run of the same host under any other name is used. `out/` never
+leaves the machine, so to compare runs made on two machines point both at a shared folder
+(`SEO_AUDIT_ARCHIVE`, or `--archive` on `pro.mjs`): every run is copied there as well and
+counts as history on either machine. When there is an earlier run, the full audit also
+writes `compare.pdf`, a one-page before and after for the client.
 
 The server refuses `mode: "pro"` and every generated file to anything that is not loopback
 or carrying `OWNER_KEY`, and the Owner panel never renders for anyone else. The one way to

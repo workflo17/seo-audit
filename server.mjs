@@ -10,7 +10,7 @@ import { ROOT, runAudit, printPdf } from "./lib.mjs";
 import { buildReport, buildLeavebehind, buildReportTeaser } from "./report.mjs";
 import { runProAudit } from "./lib-pro.mjs";
 import { buildProReport, buildProChecklist } from "./report-pro.mjs";
-import { archiveRun, listRuns, diffRuns } from "./history.mjs";
+import { archiveRun, listRuns, diffRuns, extraRoots } from "./history.mjs";
 import { parseCsv, runBatch, outreachDraft, findingsCsv, pagesCsv, batchIndexHtml } from "./batch.mjs";
 import { hostOf } from "./discover.mjs";
 
@@ -233,7 +233,7 @@ async function runProJob(job) {
   writeFileSync(join(data.outDir, "outreach.txt"), outreachDraft(data));
   writeFileSync(join(data.outDir, "findings.csv"), findingsCsv(data));
   writeFileSync(join(data.outDir, "pages.csv"), pagesCsv(data));
-  archiveRun(data.outDir, data.stamp);
+  archiveRun(data.outDir, data.stamp, { roots: extraRoots() });
   job.slug = data.slug;
   job.pro = true;
   job.top = data.fixes.map(f => f.title);
